@@ -1,0 +1,32 @@
+test_confirmation_invalidates_after_any_evidence_change (test_death_review.DeathReviewTests.test_confirmation_invalidates_after_any_evidence_change) ... ok
+test_conflicting_dates_inside_one_pdf_are_preserved (test_death_review.DeathReviewTests.test_conflicting_dates_inside_one_pdf_are_preserved) ... ok
+test_conflicting_sources_even_if_one_matches (test_death_review.DeathReviewTests.test_conflicting_sources_even_if_one_matches) ... ok
+test_matching_record_is_accepted (test_death_review.DeathReviewTests.test_matching_record_is_accepted) ... ok
+test_mismatch_needs_review (test_death_review.DeathReviewTests.test_mismatch_needs_review) ... ok
+test_missing_record_never_automatically_proves_expected_date (test_death_review.DeathReviewTests.test_missing_record_never_automatically_proves_expected_date) ... ok
+test_month_year_and_leap_boundaries (test_death_review.DeathReviewTests.test_month_year_and_leap_boundaries) ... ok
+test_selected_date_cannot_silently_override_matching_sources (test_death_review.DeathReviewTests.test_selected_date_cannot_silently_override_matching_sources) ... ok
+test_switch_uses_conversion_effective_date_not_recorded_death (test_death_review.DeathReviewTests.test_switch_uses_conversion_effective_date_not_recorded_death) ... ok
+test_two_matching_documents (test_death_review.DeathReviewTests.test_two_matching_documents) ... ok
+test_age_threshold_from_birthday_month_and_beneficiary (test_tool.CalculationTests.test_age_threshold_from_birthday_month_and_beneficiary) ... ok
+test_april_mapping_and_separate_arrear (test_tool.CalculationTests.test_april_mapping_and_separate_arrear) ... ok
+test_changed_conversion_month_fma_requires_override (test_tool.CalculationTests.test_changed_conversion_month_fma_requires_override) ... ok
+test_current_month_blocked (test_tool.CalculationTests.test_current_month_blocked) ... ok
+test_duplicate_payment_is_not_silently_summed (test_tool.CalculationTests.test_duplicate_payment_is_not_silently_summed) ... ok
+test_end_of_enhanced_period_splits_month (test_tool.CalculationTests.test_end_of_enhanced_period_splits_month) ... ok
+test_fma_full_not_partial (test_tool.CalculationTests.test_fma_full_not_partial) ... ok
+test_missing_or_overlapping_dr_blocks (test_tool.CalculationTests.test_missing_or_overlapping_dr_blocks) ... ok
+test_normal_family_no_commutation_and_zero_missing_payment (test_tool.CalculationTests.test_normal_family_no_commutation_and_zero_missing_payment) ... ok
+test_reviewed_long_case_57_months (test_tool.CalculationTests.test_reviewed_long_case_57_months) ... ok
+test_reviewed_september_split_and_rounding (test_tool.CalculationTests.test_reviewed_september_split_and_rounding) ... ok
+test_single_april_bill_requires_allocation (test_tool.CalculationTests.test_single_april_bill_requires_allocation) ... ok
+test_output_layout_cache_colours_and_schema (test_tool.ExcelTests.test_output_layout_cache_colours_and_schema) ... ok
+test_rate_excel_percent_and_cda_selection (test_tool.ExcelTests.test_rate_excel_percent_and_cda_selection) ... ok
+test_recovery_label_and_negative_result (test_tool.ExcelTests.test_recovery_label_and_negative_result) ... ok
+test_conflict_left_blank (test_tool.ParsingTests.test_conflict_left_blank) ... ok
+test_order_fields_not_issue_date (test_tool.ParsingTests.test_order_fields_not_issue_date) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.153s
+
+OK
