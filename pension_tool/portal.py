@@ -16,21 +16,82 @@ class Portal:
         self.runtime=sync_playwright().start()
         try:
             self.browser=self.runtime.chromium.connect_over_cdp('http://127.0.0.1:9222',timeout=15000)
-            self.context=self.browser.contexts[0];self.page=self.context.new_page()
-        except Exception:
-            self.runtime.stop();raise RuntimeError('Open the tool Chrome window first, complete login and OTP, then retry.')
+            self.context=self.browser.contexts[0]
+            pages=[p for p in self.context.pages if urlparse(p.url).hostname=='dotpension.gov.in']
+            if len(pages)!=1:raise RuntimeError('Keep exactly one SAMPANN tab open in the tool browser, then retry.')
+            self.page=pages[0];self.page.bring_to_front();self.check_session()
+        except Exception as e:
+            self.runtime.stop();raise RuntimeError('Browser connection/setup failed: '+str(e)) from e
         return self
-    def __exit__(self,*args):
-        try:self.page.close()
-        finally:self.runtime.stop() # disconnect; never close the user browser
+    def __exit__(self,kind,error,tb):
+        if error:
+            try:
+                (self.output/'collection_error.txt').write_text(str(error)+'\nPage: '+self.page.url,encoding='utf-8')
+                self.page.screenshot(path=str(self.output/'collection_error.png'),full_page=True)
+            except Exception:pass
+        self.runtime.stop() # retain the user tab for inspection; disconnect only
+    def check_session(self):
+        if '/login' in self.page.url.lower() or self.page.locator('input[type="password"]:visible').count():
+            raise RuntimeError('Session expired or login incomplete. Complete SAMPANN login and OTP, then retry. Case was not skipped.')
+    def wait_ready(self,predicate,description,timeout=90):
+        deadline=time.monotonic()+timeout
+        while time.monotonic()<deadline:
+            self.check_session()
+            if self.page.evaluate(predicate):return
+            self.page.wait_for_timeout(250)
+        raise RuntimeError(description+' timed out. Keep the portal page open and retry. Case was not skipped.')
     def navigate(self,url):
-        self.page.goto(url,wait_until='domcontentloaded',timeout=60000)
-        if '/Login' in self.page.url:raise RuntimeError('SAMPANN login has expired. Complete login and OTP in the tool Chrome window.')
+        self.check_session();path=urlparse(url).path
+        if urlparse(self.page.url).path.rstrip('/')==path.rstrip('/'):
+            self.wait_ready("() => !!document.querySelector('#PPONumber') && !!document.querySelector('#search')",'Report controls')
+            return
+        self.log('Opening report through the portal menu...')
+        # Only click a real portal link. Never goto a guessed/deep report URL.
+        target=self.page.locator('a[href*="'+path+'"]')
+        if not target.count():
+            raise RuntimeError('Report menu link not found. Expand the SAMPANN Reports menu in the tool browser and retry. No direct URL was opened.')
+        if target.count()!=1:raise RuntimeError('More than one report menu link found. Open the required report manually, then retry.')
+        # Expand actual ancestor menu toggles, from outside to inside.
+        toggles=target.evaluate("""el => {
+          const result=[];
+          for(let p=el.parentElement;p;p=p.parentElement){
+            if(p.tagName==='LI'){
+              const a=[...p.children].find(x=>x.tagName==='A' && x!==el);
+              if(a)result.unshift(a.innerText.trim());
+            }
+          }return result.filter(Boolean);
+        }""")
+        for label in toggles:
+            if target.is_visible():break
+            toggle=self.page.get_by_role('link',name=label,exact=True)
+            if toggle.count()==1 and toggle.is_visible():toggle.click()
+        if not target.is_visible():raise RuntimeError('Report menu is collapsed. Expand it and retry.')
+        target.click(timeout=30000)
+        self.wait_ready("""() => document.readyState!=='loading' &&
+          !!document.querySelector('#PPONumber') && !!document.querySelector('#search')""",'Report page loading')
+        if urlparse(self.page.url).path.rstrip('/')!=path.rstrip('/'):
+            raise RuntimeError('Portal opened a different page. Report navigation needs review.')
     def search(self,ppo):
+        self.check_session();self.log('Searching PPO; waiting for a completed report response...')
         self.page.locator('#PPONumber').fill(ppo)
-        self.page.locator('#search').click()
-        self.page.wait_for_load_state('networkidle',timeout=60000)
-        if '/Login' in self.page.url:raise RuntimeError('Please log into SAMPANN again.')
+        # Observe an actual request carrying this PPO, not network-idle or a fixed sleep.
+        completed=[]
+        def finished(request):
+            payload=request.url+' '+(request.post_data or '')
+            if ppo in payload:
+                response=request.response()
+                if response and response.ok:completed.append(True)
+        self.page.on('requestfinished',finished)
+        try:
+            self.page.locator('#search').click()
+            deadline=time.monotonic()+90
+            while not completed and time.monotonic()<deadline:
+                self.check_session();self.page.wait_for_timeout(250)
+            if not completed:raise RuntimeError('PPO search response was not confirmed. No missing-document or zero-payment assumption was made.')
+            self.wait_ready("""() => document.readyState!=='loading' &&
+              ![...document.querySelectorAll('.dataTables_processing,.loading-overlay,.blockUI')]
+                .some(e=>e.getClientRects().length && getComputedStyle(e).visibility!=='hidden' && getComputedStyle(e).display!=='none')""",'Report rendering')
+        finally:self.page.remove_listener('requestfinished',finished)
     def pdf(self,url,filename):
         url=urljoin(BASE,url)
         if urlparse(url).hostname!='dotpension.gov.in':raise ValueError('Unexpected document origin; review link.')
@@ -40,6 +101,7 @@ class Portal:
         dest=self.output/filename;dest.write_bytes(data);return dest
     def documents(self,ppo):
         self.navigate(DOCS);self.search(ppo)
+        self.wait_ready("""() => document.body.innerText.includes('Revision Authority Documents')""",'Revision Authority section loading')
         # Section grouping is derived from displayed text rather than guessed IDs.
         sections=self.page.locator('div').evaluate_all('''els => {
           const result={};
@@ -50,7 +112,8 @@ class Portal:
           }return result;
         }''')
         revisions=[x for x in sections['Revision Authority Documents'] if '/Download' in x['href']]
-        if not revisions:raise ValueError('SKIPPED: no Revision Authority Documents found for this PPO.')
+        if not revisions:
+            raise RuntimeError('Revision Authority section loaded, but no supported download links were identified. Review the portal page; this case has NOT been skipped.')
         docs=[]
         for i,x in enumerate(revisions):
             self.log(f'Downloading revision authority {i+1}...');docs.append(('conversion',self.pdf(x['href'],f'revision_{i+1}.pdf')))
@@ -58,12 +121,22 @@ class Portal:
         for i,x in enumerate(originals):docs.append(('original',self.pdf(x['href'],f'original_{i+1}.pdf')))
         migrated=self.page.get_by_role('link',name='View Pensioner Details',exact=True)
         if migrated.count():
-            href=migrated.first.get_attribute('href');url=urljoin(BASE,href)
-            if urlparse(url).hostname!='dotpension.gov.in':raise ValueError('Unexpected migrated profile origin.')
-            p=self.context.new_page()
+            before=set(self.context.pages);previous=self.page.url
+            migrated.first.click()
+            self.page.wait_for_timeout(250)
+            opened=[p for p in self.context.pages if p not in before]
+            p=opened[0] if opened else self.page
             try:
-                p.goto(url,wait_until='networkidle');text=p.locator('body').inner_text();(self.output/'migrated_profile.txt').write_text(text,encoding='utf-8');docs.append(('profile',self.output/'migrated_profile.txt'))
-            finally:p.close()
+                p.wait_for_load_state('domcontentloaded',timeout=90000)
+                if '/login' in p.url.lower():raise RuntimeError('Session expired while opening migrated details.')
+                p.locator('body').wait_for(state='visible',timeout=90000)
+                text=p.locator('body').inner_text()
+                if not re.search(r'date of birth|basic pension|pensioner name',text,re.I):
+                    raise RuntimeError('Migrated profile content could not be verified. Import the profile for review.')
+                (self.output/'migrated_profile.txt').write_text(text,encoding='utf-8');docs.append(('profile',self.output/'migrated_profile.txt'))
+            finally:
+                if opened:p.close()
+                elif self.page.url!=previous:self.page.go_back(wait_until='domcontentloaded',timeout=90000)
         # Resolve a JavaScript Form14 viewer through its visible link; no guessed API.
         links=self.page.get_by_text('Form14 /',exact=False)
         if links.count():

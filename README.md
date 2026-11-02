@@ -1,3 +1,18 @@
+## Source testing update
+
+Windows builds now run manually only; pushing source does not build an EXE.
+Use Python 3.12 (64-bit), run INSTALL.bat and INSTALL_OCR.bat once, then START.bat.
+Keep exactly one SAMPANN tab open in the dedicated tool browser. Complete login,
+expand the Reports menu, and test one previously reviewed case first. The collector now
+clicks the actual report menu link, waits up to 90 seconds for a successful PPO
+search request and report readiness, and keeps the browser tab open on failure.
+If the report is already open, its controls are reused. Unsupported/missing
+revision download links now require review instead of falsely skipping a case.
+Error screenshots and page addresses are saved inside the private case folder;
+do not upload these to the public repository. 31 unit tests pass, including four
+session/loading/navigation checks using simulated browser states. Live SAMPANN
+collection and all three end-to-end case comparisons remain unverified.
+
 # Family Pension Conversion Tool — Windows desktop v0.2.1
 
 This is a local Python application. It reads SAMPANN reports through your own
