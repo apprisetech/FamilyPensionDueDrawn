@@ -94,7 +94,15 @@ class Portal:
                 self.record.event('recovery', action='reobserve_and_scroll', expected=label)
                 self.check_session()
                 item.scroll_into_view_if_needed(timeout=10000)  # safe scroll retry, never repeat an unknown click
-            item.click(timeout=15000)
+            options = dict(timeout=15000)
+            if item.evaluate('(el)=>el.tagName') == 'A':
+                box = item.bounding_box()
+                if box:
+                    # Some portal handlers inspect event.target rather than the
+                    # anchor. Native clicks on its padding avoid nested text/icon
+                    # spans without invoking JavaScript click or forcing input.
+                    options['position'] = dict(x=min(3,box['width']/2),y=box['height']/2)
+            item.click(**options)
 
     def menu_item(self, label):
         return self.page.locator('ul.nav.metismenu.navMain a').filter(
@@ -102,7 +110,8 @@ class Portal:
 
     def wait_menu(self, item, description):
         with self.record.step('wait_menu', description, self.page):
-            self.until(lambda: item.count() == 1 and item.is_visible(), description)
+            self.until(lambda: item.count() == 1 and item.is_visible()
+                       and not self.page.locator('ul.navMain .collapsing').count(), description)
 
     def open_menu_branch(self, parent, child, label):
         self.wait_menu(parent, label)
@@ -165,9 +174,12 @@ class Portal:
                 self.page.remove_listener('requestfinished', finished)
 
     def section(self, title):
-        item = self.page.locator('div.ibox-content').filter(has_text=re.compile(r'^\s*' + re.escape(title)))
-        self.until(lambda: item.count() == 1 and item.is_visible(), title)
-        return item
+        with self.record.step('read_section', title, self.page):
+            item = self.page.locator('div.ibox-content').filter(
+                has_text=re.compile(r'^\s*' + re.escape(title))).filter(
+                has_not=self.page.locator('div.ibox-content'))
+            self.until(lambda: item.count() == 1 and item.is_visible(), title)
+            return item
 
     def document_link(self, link, filename):
         """Save only a download/PDF response produced by the actual visible link click."""
@@ -202,6 +214,7 @@ class Portal:
             def on_page(page):
                 page.on('download', on_download)
                 attached.append(page)
+                if page.opener() is self.page: owned.add(page)
             self.page.on('download', on_download)
             self.context.on('response', on_response)
             self.context.on('page', on_page)

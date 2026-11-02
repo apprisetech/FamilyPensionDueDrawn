@@ -24,6 +24,9 @@ def page_html(path, searched=False, migrated=False, bad_payment=False):
     <li><a href="#" onclick="document.querySelector('#payments').style.display='block';return false">Payment related Reports</a>
     <ul id="payments" style="display:none"><li><a href="/Report/Report/PensionerPaymentReportAfterTransfer">Pensioner Payment Report</a></li>
     <li><a href="/Report/Report/GCPaymentReportAfterTransfer">DCRG &amp; Commuatation Payment Report</a></li></ul></li></ul></li></ul>'''
+    # Match the live menu's nested text spans and event-target-sensitive handler.
+    nav=nav.replace('<a href="#" onclick="document.querySelector(\'#details\').style.display=\'block\';return false">Pensioner Detail Reports</a>',
+        '<a href="#" style="display:block;padding:8px;width:220px" onclick="if(event.target===this &amp;&amp; !document.querySelector(\'.collapsing\'))document.querySelector(\'#details\').style.display=\'block\';return false"><span>Pensioner Detail Reports</span></a>')
     calendar='''<script>
     document.querySelectorAll('input[readonly]').forEach(f=>f.onclick=()=>{
       document.querySelector('#picker')?.remove();let p=document.createElement('div');p.id='picker';
@@ -56,7 +59,12 @@ def page_html(path, searched=False, migrated=False, bad_payment=False):
               if({str(migrated).lower()}){{fetch('/forbidden-form14');return;}}
               setTimeout(()=>{{document.querySelector('#tabcontent').innerHTML='<h2>Form 14</h2><table><tr><td>1.(i) Name of the Government servant</td><td>Late. TEST ORIGINAL</td></tr><tr><td>Date of death of Government Servant</td><td>10/01/2022</td></tr></table><table><tr><th>Name</th><th>Date of Birth</th><th>Relationship with the deceased Government Servant</th></tr><tr><td>TEST FAMILY</td><td>15/09/2005</td><td>Son</td></tr></table>';document.querySelector('#myAddNominationForm1').style.display='block';}},200);
             }}</script>'''
-        return nav+f'<form><input id="PPONumber" name="PPONumber" placeholder="PPO Number" value="{PPO if searched else ""}"><button id="search">Search</button></form>'+result
+        # Live report repeats ibox-content on a wrapper and its inner data panel.
+        nesting="""<script>document.querySelectorAll('.ibox-content').forEach(outer=>{
+          let inner=document.createElement('div');inner.className='ibox-content';
+          while(outer.firstChild)inner.append(outer.firstChild);outer.append(inner);
+        });</script>"""
+        return nav+f'<form><input id="PPONumber" name="PPONumber" placeholder="PPO Number" value="{PPO if searched else ""}"><button id="search">Search</button></form>'+result+nesting
     is_gc=path.endswith('GCPaymentReportAfterTransfer')
     if is_gc:
         form='''<form><select class="form-control"><option>Select</option><option>CCA - Test Circle</option></select><select class="form-control"><option>Select</option><option>All</option><option>IDA</option><option>CDA</option></select>
@@ -153,7 +161,14 @@ Medical allowance: NIL''')
         fields=json.loads(next(p for k,p in docs if k=='structured').read_text())['fields']
         self.assertEqual(fields['family_dob'],'2005-09-15');self.assertEqual(fields['death'],'2022-01-10')
         self.assertTrue(all(p.read_bytes().startswith(b'%PDF-') for k,p in docs if p.suffix=='.pdf'))
-        self.assertEqual(len(self.context.pages),1)
+        # Headless-shell can leave an unidentified about:blank download tab.
+        # Never close an unowned tab just to make the context count equal one.
+        self.assertTrue(all(p is self.page or p.url=='about:blank' for p in self.context.pages))
+
+    def test_document_cleanup_preserves_unrelated_tabs(self):
+        unrelated=self.context.new_page();unrelated.set_content('<p>User work</p>')
+        self.portal.documents(PPO)
+        self.assertFalse(unrelated.is_closed());self.assertIn('User work',unrelated.content())
 
     def test_migrated_onepager_skips_generic_form14_and_keeps_dob_sections(self):
         self.migrated=True

@@ -1,5 +1,6 @@
 warning: The `fitz` API is deprecated and will be removed in future. Use `import pymupdf` instead.
 test_collected_sources_through_calculation_and_standard_excel (test_browser_flow.BrowserFlow.test_collected_sources_through_calculation_and_standard_excel) ... ok
+test_document_cleanup_preserves_unrelated_tabs (test_browser_flow.BrowserFlow.test_document_cleanup_preserves_unrelated_tabs) ... ok
 test_evidence_omits_authentication_screens (test_browser_flow.BrowserFlow.test_evidence_omits_authentication_screens) ... ok
 test_evidence_omits_otp_screen_without_password (test_browser_flow.BrowserFlow.test_evidence_omits_otp_screen_without_password) ... ok
 test_explicit_zero_report_can_complete (test_browser_flow.BrowserFlow.test_explicit_zero_report_can_complete) ... ok
@@ -61,6 +62,6 @@ test_conflict_left_blank (test_tool.ParsingTests.test_conflict_left_blank) ... o
 test_order_fields_not_issue_date (test_tool.ParsingTests.test_order_fields_not_issue_date) ... ok
 
 ----------------------------------------------------------------------
-Ran 60 tests in 19.986s
+Ran 61 tests in 34.408s
 
 OK
