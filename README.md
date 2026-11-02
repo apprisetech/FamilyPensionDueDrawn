@@ -1,3 +1,8 @@
+Sidebar update: uses the supplied automation.py slimScroll layout fixes and exact
+Reports > Pensioner Detail Reports > Pensioner Document Report sequence. Each
+submenu is awaited; already expanded branches are retained. Payment navigation
+uses the actual link ancestor hierarchy, pending live verification.
+
 ## Source testing update
 
 Windows builds now run manually only; pushing source does not build an EXE.

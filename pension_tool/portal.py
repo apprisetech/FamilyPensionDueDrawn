@@ -40,33 +40,61 @@ class Portal:
             if self.page.evaluate(predicate):return
             self.page.wait_for_timeout(250)
         raise RuntimeError(description+' timed out. Keep the portal page open and retry. Case was not skipped.')
+    def inject_ui_fixes(self):
+        # From the supplied automation.py: repair slimScroll clipping locally.
+        self.page.evaluate("""() => {
+            document.querySelectorAll('div.slimScrollDiv').forEach(el => {
+                el.style.height='1200px';el.style.overflow='auto';
+                el.style.backgroundColor='transparent';
+            });
+            const nav=document.querySelector('ul.nav.metismenu.navMain');
+            if(nav){nav.style.height='1200px';nav.style.overflow='auto';nav.style.backgroundColor='#ffffff';}
+            document.querySelectorAll('.navMain > li > a').forEach(el=>el.style.padding='5px');
+            document.body.style.overflowX='hidden';document.body.style.width='100%';
+        }""")
+    def wait_menu(self,item,description):
+        deadline=time.monotonic()+90
+        while time.monotonic()<deadline:
+            self.check_session()
+            if item.count()==1 and item.is_visible():return
+            self.page.wait_for_timeout(250)
+        raise RuntimeError(description+' did not become visible. Inspect the open sidebar; case was not skipped.')
+    def menu_item(self,label):
+        return self.page.locator('ul.nav.metismenu.navMain').locator('a').filter(
+            has=self.page.locator('span').filter(has_text=re.compile('^'+re.escape(label)+'$')))
+    def open_menu_branch(self,parent,child,label):
+        self.wait_menu(parent,label)
+        # Already expanded menus must not be toggled closed.
+        if child.count()==1 and child.is_visible():return
+        parent.scroll_into_view_if_needed(timeout=30000)
+        parent.click(timeout=30000)
+        self.wait_menu(child,'Submenu after '+label)
     def navigate(self,url):
         self.check_session();path=urlparse(url).path
         if urlparse(self.page.url).path.rstrip('/')==path.rstrip('/'):
             self.wait_ready("() => !!document.querySelector('#PPONumber') && !!document.querySelector('#search')",'Report controls')
             return
-        self.log('Opening report through the portal menu...')
-        # Only click a real portal link. Never goto a guessed/deep report URL.
-        target=self.page.locator('a[href*="'+path+'"]')
-        if not target.count():
-            raise RuntimeError('Report menu link not found. Expand the SAMPANN Reports menu in the tool browser and retry. No direct URL was opened.')
-        if target.count()!=1:raise RuntimeError('More than one report menu link found. Open the required report manually, then retry.')
-        # Expand actual ancestor menu toggles, from outside to inside.
-        toggles=target.evaluate("""el => {
-          const result=[];
-          for(let p=el.parentElement;p;p=p.parentElement){
-            if(p.tagName==='LI'){
-              const a=[...p.children].find(x=>x.tagName==='A' && x!==el);
-              if(a)result.unshift(a.innerText.trim());
-            }
-          }return result.filter(Boolean);
-        }""")
-        for label in toggles:
-            if target.is_visible():break
-            toggle=self.page.get_by_role('link',name=label,exact=True)
-            if toggle.count()==1 and toggle.is_visible():toggle.click()
-        if not target.is_visible():raise RuntimeError('Report menu is collapsed. Expand it and retry.')
-        target.click(timeout=30000)
+        self.log('Repairing sidebar layout and opening report through menus...')
+        self.wait_ready("() => !!document.querySelector('ul.nav.metismenu.navMain')",'SAMPANN sidebar')
+        self.inject_ui_fixes()
+        if url==DOCS:
+            # Verified exact sequence from the user's working automation.py.
+            reports=self.menu_item('Reports')
+            detail=self.menu_item('Pensioner Detail Reports')
+            target=self.menu_item('Pensioner Document Report')
+            self.open_menu_branch(reports,detail,'Reports')
+            self.open_menu_branch(detail,target,'Pensioner Detail Reports')
+        else:
+            # Payment menu labels are not supplied: derive the hierarchy from its real link.
+            target=self.page.locator('ul.nav.metismenu.navMain a[href*="'+path+'"]')
+            if target.count()!=1:raise RuntimeError('Unique report menu link not found. Inspect the portal menu; no direct URL was opened.')
+            ancestors=target.locator('xpath=ancestor::li')
+            for i in range(ancestors.count()-1,0,-1):
+                parent=ancestors.nth(i).locator('xpath=./a')
+                child=ancestors.nth(i-1).locator('xpath=./a')
+                self.open_menu_branch(parent,child,'Report menu level')
+        self.wait_menu(target,'Report link')
+        target.scroll_into_view_if_needed(timeout=30000);target.click(timeout=30000)
         self.wait_ready("""() => document.readyState!=='loading' &&
           !!document.querySelector('#PPONumber') && !!document.querySelector('#search')""",'Report page loading')
         if urlparse(self.page.url).path.rstrip('/')!=path.rstrip('/'):
