@@ -1,0 +1,13 @@
+.venv*/
+__pycache__/
+*.pyc
+cases/
+output/
+outputs/
+settings.json
+build/
+dist/
+build_browsers/
+*.spec
+*.zip
+DR_Master.xlsx
