@@ -1,3 +1,15 @@
+warning: The `fitz` API is deprecated and will be removed in future. Use `import pymupdf` instead.
+test_collected_sources_through_calculation_and_standard_excel (test_browser_flow.BrowserFlow.test_collected_sources_through_calculation_and_standard_excel) ... ok
+test_evidence_omits_authentication_screens (test_browser_flow.BrowserFlow.test_evidence_omits_authentication_screens) ... ok
+test_evidence_omits_otp_screen_without_password (test_browser_flow.BrowserFlow.test_evidence_omits_otp_screen_without_password) ... ok
+test_explicit_zero_report_can_complete (test_browser_flow.BrowserFlow.test_explicit_zero_report_can_complete) ... ok
+test_filtered_subset_is_incomplete_even_when_row_count_matches (test_browser_flow.BrowserFlow.test_filtered_subset_is_incomplete_even_when_row_count_matches) ... ok
+test_gc_hidden_columns_and_explicit_category (test_browser_flow.BrowserFlow.test_gc_hidden_columns_and_explicit_category) ... ok
+test_migrated_onepager_skips_generic_form14_and_keeps_dob_sections (test_browser_flow.BrowserFlow.test_migrated_onepager_skips_generic_form14_and_keeps_dob_sections) ... ok
+test_native_menu_navigation_and_readonly_datepicker_payment_completeness (test_browser_flow.BrowserFlow.test_native_menu_navigation_and_readonly_datepicker_payment_completeness) ... ok
+test_normal_html_modal_and_inline_getfile_save (test_browser_flow.BrowserFlow.test_normal_html_modal_and_inline_getfile_save) ... ok
+test_sanitized_dom_does_not_persist_hidden_tokens_or_scripts (test_browser_flow.BrowserFlow.test_sanitized_dom_does_not_persist_hidden_tokens_or_scripts) ... ok
+test_wrong_payment_ppo_saves_failure_evidence_and_never_completes (test_browser_flow.BrowserFlow.test_wrong_payment_ppo_saves_failure_evidence_and_never_completes) ... ok
 test_confirmation_invalidates_after_any_evidence_change (test_death_review.DeathReviewTests.test_confirmation_invalidates_after_any_evidence_change) ... ok
 test_conflicting_dates_inside_one_pdf_are_preserved (test_death_review.DeathReviewTests.test_conflicting_dates_inside_one_pdf_are_preserved) ... ok
 test_conflicting_sources_even_if_one_matches (test_death_review.DeathReviewTests.test_conflicting_sources_even_if_one_matches) ... ok
@@ -8,6 +20,28 @@ test_month_year_and_leap_boundaries (test_death_review.DeathReviewTests.test_mon
 test_selected_date_cannot_silently_override_matching_sources (test_death_review.DeathReviewTests.test_selected_date_cannot_silently_override_matching_sources) ... ok
 test_switch_uses_conversion_effective_date_not_recorded_death (test_death_review.DeathReviewTests.test_switch_uses_conversion_effective_date_not_recorded_death) ... ok
 test_two_matching_documents (test_death_review.DeathReviewTests.test_two_matching_documents) ... ok
+test_collapsed_branch_uses_native_click_then_verifies_child (test_portal.PortalChecks.test_collapsed_branch_uses_native_click_then_verifies_child) ... ok
+test_expanded_branch_is_not_closed (test_portal.PortalChecks.test_expanded_branch_is_not_closed) ... ok
+test_loading_timeout_is_recorded_not_skipped (test_portal.PortalChecks.test_loading_timeout_is_recorded_not_skipped) ... ok
+test_login_redirect_never_becomes_missing_document (test_portal.PortalChecks.test_login_redirect_never_becomes_missing_document) ... ok
+test_production_collector_has_no_direct_navigation_or_request_fetch (test_portal.PortalChecks.test_production_collector_has_no_direct_navigation_or_request_fetch) ... ok
+test_public_home_is_expired_not_missing_report (test_portal.PortalChecks.test_public_home_is_expired_not_missing_report) ... ok
+test_slow_page_waits_until_ready (test_portal.PortalChecks.test_slow_page_waits_until_ready) ... ok
+test_unknown_destination_cannot_open_direct_url (test_portal.PortalChecks.test_unknown_destination_cannot_open_direct_url) ... ok
+test_every_run_has_distinct_folder (test_sources.DiagnosticTests.test_every_run_has_distinct_folder) ... ok
+test_failed_action_preserves_history_progress_and_pack (test_sources.DiagnosticTests.test_failed_action_preserves_history_progress_and_pack) ... ok
+test_url_credentials_and_query_not_recorded (test_sources.DiagnosticTests.test_url_credentials_and_query_not_recorded) ... ok
+test_boilerplate_ida_is_not_category_evidence (test_sources.StructuredSources.test_boilerplate_ida_is_not_category_evidence) ... ok
+test_conflicting_categories_within_profile_are_rejected (test_sources.StructuredSources.test_conflicting_categories_within_profile_are_rejected) ... ok
+test_dated_commutation_revision_supersedes_original_zero (test_sources.StructuredSources.test_dated_commutation_revision_supersedes_original_zero) ... ok
+test_equal_monetary_values_with_different_precision_are_not_conflicts (test_sources.StructuredSources.test_equal_monetary_values_with_different_precision_are_not_conflicts) ... ok
+test_form14_claimant_not_guardian_or_spouse (test_sources.StructuredSources.test_form14_claimant_not_guardian_or_spouse) ... ok
+test_gc_header_mapping_includes_hidden_columns (test_sources.StructuredSources.test_gc_header_mapping_includes_hidden_columns) ... ok
+test_honorific_removal_preserves_names_starting_with_mr (test_sources.StructuredSources.test_honorific_removal_preserves_names_starting_with_mr) ... ok
+test_migrated_repeated_dob_labels_are_section_scoped (test_sources.StructuredSources.test_migrated_repeated_dob_labels_are_section_scoped) ... ok
+test_report_restoration_discrepancy_is_retained_for_review (test_sources.StructuredSources.test_report_restoration_discrepancy_is_retained_for_review) ... ok
+test_same_date_conflicting_revisions_not_silently_chosen (test_sources.StructuredSources.test_same_date_conflicting_revisions_not_silently_chosen) ... ok
+test_wrong_profile_ppo_rejected (test_sources.StructuredSources.test_wrong_profile_ppo_rejected) ... ok
 test_age_threshold_from_birthday_month_and_beneficiary (test_tool.CalculationTests.test_age_threshold_from_birthday_month_and_beneficiary) ... ok
 test_april_mapping_and_separate_arrear (test_tool.CalculationTests.test_april_mapping_and_separate_arrear) ... ok
 test_changed_conversion_month_fma_requires_override (test_tool.CalculationTests.test_changed_conversion_month_fma_requires_override) ... ok
@@ -27,6 +61,6 @@ test_conflict_left_blank (test_tool.ParsingTests.test_conflict_left_blank) ... o
 test_order_fields_not_issue_date (test_tool.ParsingTests.test_order_fields_not_issue_date) ... ok
 
 ----------------------------------------------------------------------
-Ran 27 tests in 0.153s
+Ran 60 tests in 19.986s
 
 OK

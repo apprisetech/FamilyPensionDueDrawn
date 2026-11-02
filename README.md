@@ -1,34 +1,17 @@
-Sidebar update: uses the supplied automation.py slimScroll layout fixes and exact
-Reports > Pensioner Detail Reports > Pensioner Document Report sequence. Each
-submenu is awaited; already expanded branches are retained. Payment navigation
-uses the actual link ancestor hierarchy, pending live verification.
-
-## Source testing update
-
-Windows builds now run manually only; pushing source does not build an EXE.
-Use Python 3.12 (64-bit), run INSTALL.bat and INSTALL_OCR.bat once, then START.bat.
-Keep exactly one SAMPANN tab open in the dedicated tool browser. Complete login,
-expand the Reports menu, and test one previously reviewed case first. The collector now
-clicks the actual report menu link, waits up to 90 seconds for a successful PPO
-search request and report readiness, and keeps the browser tab open on failure.
-If the report is already open, its controls are reused. Unsupported/missing
-revision download links now require review instead of falsely skipping a case.
-Error screenshots and page addresses are saved inside the private case folder;
-do not upload these to the public repository. 31 unit tests pass, including four
-session/loading/navigation checks using simulated browser states. Live SAMPANN
-collection and all three end-to-end case comparisons remain unverified.
-
-# Family Pension Conversion Tool — Windows desktop v0.2.1
+# Family Pension Conversion Tool — Windows desktop v0.3.0
 
 This is a local Python application. It reads SAMPANN reports through your own
 signed-in Chrome window, lets you review extracted data, and creates an Excel
 due/drawn statement using the approved single-sheet layout.
 
-**Status:** the calculation/parser/export tests pass locally. The SAMPANN
-collector is implemented against the report routes and controls observed in
-your session, but has NOT yet been run against your live portal from this new
-environment. First run one known case and compare the downloaded source data.
-This is a source-code package, not a precompiled Windows executable.
+**Status:** local calculation, parser, export and isolated Chrome workflow tests
+pass. Tests cover inline PDF viewer downloads, Normal/Migrated routing, native
+menus/date-pickers, complete payment queries and failure evidence. A synthetic
+case also runs from downloaded sources through the standard Excel export.
+Saved live source documents were checked separately. Full collection of the
+three real cases using this version and comparison of their final Excel results
+remain pending. This is source code; no new EXE was built. Windows portable
+builds remain manual only.
 
 ## First setup
 
@@ -48,15 +31,15 @@ This is a source-code package, not a precompiled Windows executable.
    SAMPANN login and OTP yourself. Your normal Chrome/Firefox session is not
    changed. Keep the tool browser open while collecting.
 2. Enter the **15-digit PPO (Pension Payment Order) number** and click
-   **Collect case**. Revision Authority Documents are checked first. Cases
-   without those documents are skipped. A document must also identify a
+   **Collect case**. Revision Authority Documents are checked first. Missing
+   required sources stop for review with a saved record. A document must identify a
    conversion/updation/absorption order before its fields are used.
 3. Review Case fields. Select **IDA (Industrial Dearness Allowance)** or
    **CDA (Central Dearness Allowance)** if the source is ambiguous. These
    categories select the corresponding Dearness Relief rate schedule.
 4. Missing/conflicting fields remain for your review; they are never filled
    by guessed names/dates/digits. Use **Import PDF / profile text** for a current
-   Form14, original EPPO (Electronic Pension Payment Order), commutation
+   original EPPO (Electronic Pension Payment Order), commutation
    revision, or a PDF viewer the collector could not download. Open downloaded
    originals with **Show downloaded sources**. Read the Sources tab as well.
 5. If the effective date was edited, click **Fetch / refresh payment report**.
@@ -135,10 +118,20 @@ downloaded automatically.
 - Text is extracted from PDFs first. Sparse/image pages require explicitly
   enabled local OCR. Account, IFSC, dates and amounts must be checked against
   the original, particularly after OCR. The app has no cloud AI/API dependency.
-- SAMPANN-generated cases use original EPPO/commutation documents; migrated
-  cases additionally collect the migrated pensioner details page. Conflicting
-  sources are displayed rather than resolved by assumption. Some JavaScript-only
-  Form14 viewers may require Import PDF.
+- Normal SAMPANN cases read claimant/death fields from the visible HTML Form 14
+  modal, original EPPO/commutation PDFs, and explicit Pension Type/restoration
+  from DCRG & Commuatation Payment Report. Migrated cases use the labelled
+  one-pager sections and do not attempt Form 14, even if its generic link exists.
+  Repeated DOB labels are scoped to their original/family sections.
+- Menus, links, calendar controls and viewer Download buttons are clicked
+  normally. Required controls are scrolled into view. No report address is
+  opened directly, no document URL is refetched, and no JavaScript click or
+  sidebar/date-field mutation is used. Downloaded files must contain PDF data;
+  extracted sources must positively identify the requested PPO. A unique matching
+  family conversion PDF is copied to `family pensioner_<PPO>.pdf`.
+- An identified, dated commutation revision may supersede an earlier original
+  basic/commuted value; both sources are retained. Other conflicts remain blank
+  for review. Generic IDA boilerplate is not category evidence.
 - PDF layouts and portal markup can change. The exact original Basic, monthly
   commuted portion and Form14 labels may need parser adaptation after the first
   live run. Mandatory inputs and the review checkbox prevent a partially read
@@ -148,16 +141,40 @@ downloaded automatically.
 - The dedicated Chrome profile stores the browser session locally. Close the
   browser when finished. Do not share `cases`, `output`, the Chrome profile, or
   saved case JSON with others; those may contain pension/bank data.
-- The old `D:\...\pension_bot` project was not available in this new environment.
-  This package is a new standalone implementation, not a verified patch of that
-  old code. Upload that project's ZIP if its special navigation should be reused.
+
+## Saved steps and failure recovery
+
+Every collection/payment refresh and calculate/export run has a distinct folder
+under `cases/<PPO>/runs/`. **Show saved steps / diagnostics** opens the latest run.
+`steps.jsonl` saves the action, expected/actual result, UTC time and duration;
+`progress.json` saves partial fields, source branch, documents and query coverage.
+`partial_case.json`, when available, can be loaded through **Load saved case JSON**
+to continue review, then refresh payments. This is a review checkpoint, not an
+automatic replay of interrupted clicks.
+
+On failure the folder includes available rendered-page PNG/HTML/TXT evidence and
+`diagnostics.zip`. Login/password/OTP screens are omitted. DOM evidence removes
+scripts, hidden/credential fields and link queries. Network payloads, headers,
+cookies and browser storage are not recorded. The pack can still contain pension
+and bank data: keep it local and share only after reviewing it. Nothing uploads
+automatically. Connection failure produces a record even without a screenshot.
+
+Waits are bounded. Only scrolling gets a safe retry; the tool does not repeat an
+uncertain click or invent missing values. Failed/partial/filtered payment queries
+never become zero Drawn. Resolve the reported cause and collect/refresh again.
 
 ## Tests and troubleshooting
 
 Run `.venv312\Scripts\python.exe -m unittest discover -s tests -v`.
 
-- Connection failure: open the tool Chrome window, complete login/OTP and retry.
-- No revision: case is skipped, even if some other pension document exists.
+For isolated browser tests, install Playwright Chromium, set `RUN_BROWSER_TESTS=1`
+and run the same command. Alternatively set `TEST_BROWSER_CHANNEL=chrome` to use
+installed Chrome. Tests use temporary profiles, synthetic data and a loopback
+server; they do not use your SAMPANN session. See `TEST_RESULTS.txt`.
+
+- Connection failure: a normal open Chrome window is insufficient. Open the
+  browser using the tool button, complete login/OTP there, and retry.
+- No revision: collection stops for source review; inspect the saved steps.
 - Missing fields: open the originals, import the appropriate document and review.
 - Missing DR: update the selected master; never use a substituted zero rate.
 - Wrong April mapping: set the bill's explicit `allocated_month` in Payments.
