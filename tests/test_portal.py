@@ -30,14 +30,20 @@ class PortalChecks(unittest.TestCase):
         parent=Mock();child=Mock();child.count.return_value=1;child.is_visible.return_value=True
         self.portal.wait_menu=Mock()
         self.portal.open_menu_branch(parent,child,'Reports')
-        parent.click.assert_not_called()
+        parent.evaluate.assert_not_called()
     def test_collapsed_branch_waits_for_child_after_click(self):
         parent=Mock();child=Mock();child.count.return_value=1;child.is_visible.return_value=False
         self.portal.wait_menu=Mock()
         self.portal.open_menu_branch(parent,child,'Reports')
-        parent.click.assert_called_once()
+        parent.evaluate.assert_called_once()
         self.assertEqual(self.portal.wait_menu.call_args_list[-1].args,(child,'Submenu after Reports'))
     def test_hidden_menu_timeout_does_not_skip_case(self):
         item=Mock();item.count.return_value=0
         with patch('pension_tool.portal.time.monotonic',side_effect=[0,91]):
             with self.assertRaisesRegex(RuntimeError,'case was not skipped'):self.portal.wait_menu(item,'Reports')
+
+    def test_document_url_does_not_require_download_word(self):
+        link=Mock();link.get_attribute.return_value='/documents/sanction.pdf'
+        self.portal.pdf=Mock(return_value='verified.pdf')
+        self.assertEqual(self.portal.document_link(link,'revision.pdf'),'verified.pdf')
+        self.portal.pdf.assert_called_once_with('https://dotpension.gov.in/documents/sanction.pdf','revision.pdf')

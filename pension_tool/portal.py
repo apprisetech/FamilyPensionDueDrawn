@@ -67,7 +67,7 @@ class Portal:
         # Already expanded menus must not be toggled closed.
         if child.count()==1 and child.is_visible():return
         parent.scroll_into_view_if_needed(timeout=30000)
-        parent.click(timeout=30000)
+        parent.evaluate("el => {el.scrollIntoView({block: 'center'});el.click();}")
         self.wait_menu(child,'Submenu after '+label)
     def navigate(self,url):
         self.check_session();path=urlparse(url).path
@@ -94,7 +94,7 @@ class Portal:
                 child=ancestors.nth(i-1).locator('xpath=./a')
                 self.open_menu_branch(parent,child,'Report menu level')
         self.wait_menu(target,'Report link')
-        target.scroll_into_view_if_needed(timeout=30000);target.click(timeout=30000)
+        target.evaluate("el => {el.scrollIntoView({block: 'center'});el.click();}")
         self.wait_ready("""() => document.readyState!=='loading' &&
           !!document.querySelector('#PPONumber') && !!document.querySelector('#search')""",'Report page loading')
         if urlparse(self.page.url).path.rstrip('/')!=path.rstrip('/'):
@@ -127,26 +127,65 @@ class Portal:
         data=response.body()
         if not response.ok or not data.startswith(b'%PDF'):raise ValueError(filename+': portal returned no PDF (session expired or link unavailable).')
         dest=self.output/filename;dest.write_bytes(data);return dest
+    def document_link(self,link,filename):
+        href=link.get_attribute('href') or ''
+        # Ordinary document addresses need no /Download spelling convention.
+        if href and not href.lower().startswith('javascript:') and not href.startswith('#'):
+            return self.pdf(urljoin(self.page.url,href),filename)
+        before=set(self.context.pages);previous=self.page.url;downloads=[];responses=[]
+        def on_download(download):downloads.append(download)
+        def on_response(response):
+            if urlparse(response.url).hostname=='dotpension.gov.in' and 'application/pdf' in response.headers.get('content-type','').lower():responses.append(response)
+        def on_page(page):page.on('download',on_download)
+        self.page.on('download',on_download);self.context.on('response',on_response);self.context.on('page',on_page)
+        try:
+            link.evaluate('el => el.click()')
+            deadline=time.monotonic()+90
+            while time.monotonic()<deadline:
+                self.check_session()
+                dest=self.output/filename
+                if downloads:
+                    downloads[0].save_as(str(dest))
+                    if not dest.read_bytes().startswith(b'%PDF'):dest.unlink();raise RuntimeError('Document download was not a PDF.')
+                    return dest
+                if responses:
+                    data=responses[0].body()
+                    if data.startswith(b'%PDF'):dest.write_bytes(data);return dest
+                self.page.wait_for_timeout(250)
+            raise RuntimeError('Document viewer did not return a PDF within 90 seconds. Keep the case for review.')
+        finally:
+            self.page.remove_listener('download',on_download);self.context.remove_listener('response',on_response);self.context.remove_listener('page',on_page)
+            for page in self.context.pages:
+                if page not in before:page.close()
+            if self.page.url!=previous:self.page.go_back(wait_until='domcontentloaded',timeout=90000)
     def documents(self,ppo):
         self.navigate(DOCS);self.search(ppo)
         self.wait_ready("""() => document.body.innerText.includes('Revision Authority Documents')""",'Revision Authority section loading')
-        # Section grouping is derived from displayed text rather than guessed IDs.
-        sections=self.page.locator('div').evaluate_all('''els => {
-          const result={};
-          for(const title of ['Revision Authority Documents','EPPO Documents']){
-            const candidates=els.filter(e=>e.innerText && e.innerText.trim().startsWith(title) && e.querySelector('table'));
-            candidates.sort((a,b)=>a.innerText.length-b.innerText.length);
-            result[title]=candidates.length ? [...candidates[0].querySelectorAll('a[href]')].map(a=>({text:a.innerText,href:a.getAttribute('href')})) : [];
-          }return result;
-        }''')
-        revisions=[x for x in sections['Revision Authority Documents'] if '/Download' in x['href']]
-        if not revisions:
-            raise RuntimeError('Revision Authority section loaded, but no supported download links were identified. Review the portal page; this case has NOT been skipped.')
+        # Verified from automation.py: ibox-content > table > fifth-column anchor.
+        sections=self.page.locator('div.ibox-content')
+        revision_sections=[];original_sections=[]
+        for i in range(sections.count()):
+            section=sections.nth(i)
+            title=section.locator('span').first.inner_text() if section.locator('span').count() else ''
+            if re.search(r'Revision|Authority',title,re.I):revision_sections.append(section)
+            elif 'EPPO' in title.upper():original_sections.append(section)
+        if len(revision_sections)!=1:
+            raise RuntimeError('Revision Authority table could not be identified uniquely. Report needs review; case was not skipped.')
+        revision=revision_sections[0]
+        links=revision.locator('tr td:nth-child(5) a')
+        if not links.count():
+            raise RuntimeError('Revision table has no fifth-column document links. Report needs review; case was not skipped.')
         docs=[]
-        for i,x in enumerate(revisions):
-            self.log(f'Downloading revision authority {i+1}...');docs.append(('conversion',self.pdf(x['href'],f'revision_{i+1}.pdf')))
-        originals=[x for x in sections['EPPO Documents'] if 'EPPO' in x['text'].upper() or 'COMMUTATION' in x['text'].upper()]
-        for i,x in enumerate(originals):docs.append(('original',self.pdf(x['href'],f'original_{i+1}.pdf')))
+        for i in range(links.count()):
+            self.log(f'Opening revision authority document {i+1}...')
+            docs.append(('conversion',self.document_link(links.nth(i),f'revision_{i+1}.pdf')))
+        for section in original_sections:
+            originals=section.locator('tr td a')
+            for i in range(originals.count()):
+                link=originals.nth(i)
+                row=link.locator('xpath=ancestor::tr').inner_text()
+                if 'EPPO' in row.upper() or 'COMMUTATION' in row.upper():
+                    docs.append(('original',self.document_link(link,f'original_{len(docs)}.pdf')))
         migrated=self.page.get_by_role('link',name='View Pensioner Details',exact=True)
         if migrated.count():
             before=set(self.context.pages);previous=self.page.url
