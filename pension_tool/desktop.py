@@ -1,13 +1,15 @@
 from pathlib import Path
 from datetime import date
 from dataclasses import asdict
-import json,os,re,subprocess,threading,queue,traceback,sys
+import json,os,re,subprocess,threading,queue,traceback,sys,shutil
 import tkinter as tk
 from tkinter import ttk,filedialog,messagebox
 from .engine import Case,Payment,D,dt,previous_month,calculate,load_rates
 from .extract import read_pdf,parse_text,merge_candidates
 from .exporter import export
 from .death_review import reconcile,signature_key,PREFIX
+from .diagnostics import Recorder
+from . import __version__
 
 ROOT=Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parent.parent
 FIELDS=[('ppo','PPO number (15 digits)'),('category','IDA / CDA'),('pensioner','Original pensioner name'),('family','Family pensioner name'),('pensioner_dob','Original date of birth'),('family_dob','Family date of birth'),('death','Date of death'),('effective','Conversion effective date'),('basic','Original basic pension'),('commuted','Monthly commuted portion'),('commutation_restore','Commutation restoration date'),('fma_before','Medical allowance before'),('enhanced','Enhanced family pension'),('enhanced_until','Enhanced rate up to'),('normal','Normal family pension'),('normal_from','Normal rate from'),('fma_after','Medical allowance after'),('account','Family bank account number'),('ifsc','IFSC code')]
@@ -17,7 +19,7 @@ def payment_dict(p):return {k:str(v) if k not in ('include',) else v for k,v in 
 
 class App:
     def __init__(self,root):
-        self.root=root;root.title('Family Pension Conversion — Due / Drawn');root.geometry('1130x810');self.q=queue.Queue();self.candidates=[];self.sources={};self.review_notes=[];self.report_complete=False
+        self.root=root;root.title(f'Family Pension Conversion {__version__} — Due / Drawn');root.geometry('1130x810');self.q=queue.Queue();self.candidates=[];self.sources={};self.review_notes=[];self.report_complete=False
         self.settings_file=ROOT/'settings.json';self.settings=json.loads(self.settings_file.read_text()) if self.settings_file.exists() else {}
         self.vars={k:tk.StringVar() for k,_ in FIELDS};self.rate_path=tk.StringVar(value=self.settings.get('rates',''));self.output=tk.StringVar(value=self.settings.get('output',str(ROOT/'output')));self.end=tk.StringVar(value=str(previous_month()));self.ocr=tk.BooleanVar(value=False);self.approved=tk.BooleanVar(value=False)
         top=ttk.Frame(root,padding=10);top.pack(fill='x')
@@ -40,6 +42,7 @@ class App:
         ttk.Button(form,text='Show downloaded sources',command=self.open_sources).grid(row=12,column=0,pady=10)
         ttk.Button(form,text='Load saved case JSON',command=self.load_case).grid(row=12,column=1)
         ttk.Button(form,text='Save case JSON',command=self.save_case).grid(row=12,column=2)
+        ttk.Button(form,text='Show saved steps / diagnostics',command=self.open_diagnostics).grid(row=12,column=3)
         self.death_status=tk.StringVar(value='Date of Death: awaiting conversion order and recorded date.')
         ttk.Label(form,textvariable=self.death_status,wraplength=1020).grid(row=13,column=0,columnspan=4,sticky='w',pady=6)
         ttk.Button(form,text='Confirm reviewed death date',command=self.confirm_death).grid(row=14,column=0,columnspan=2,sticky='w')
@@ -78,10 +81,18 @@ class App:
     def worker(self,fn):
         if getattr(self,'busy',False):return messagebox.showinfo('Working','Please wait for the current collection to finish.')
         # Capture GUI values on the UI thread; Tk variables are never used by workers.
-        self.snapshot={k:v.get().strip() for k,v in self.vars.items()};self.snapshot_end=self.end.get();self.snapshot_ocr=self.ocr.get();self.busy=True
+        self.snapshot={k:v.get().strip() for k,v in self.vars.items()};self.snapshot_end=self.end.get();self.snapshot_ocr=self.ocr.get()
+        try:
+            self.active_record=Recorder(self.case_folder(self.snapshot['ppo']),fn.__name__)
+            self.latest_run_path=self.active_record.folder
+        except Exception as e:return messagebox.showerror('Cannot start',str(e))
+        self.busy=True;self.report_complete=False
         def work():
-            try:fn()
-            except Exception as e:self.q.put(('error',str(e)))
+            try:
+                fn();self.active_record.finish()
+            except Exception as e:
+                self.active_record.finish(e)
+                self.q.put(('error',str(e)+'\nSaved steps / diagnostics: '+str(self.active_record.folder)))
             finally:self.q.put(('done',None))
         threading.Thread(target=work,daemon=True).start()
     def poll(self):
@@ -92,11 +103,13 @@ class App:
                 elif kind=='error':self.status.set(value);messagebox.showerror('Review required',value)
                 elif kind=='done':self.busy=False
                 elif kind=='fields':
-                    for k,v in value[0].items():
-                        if k in self.vars and k!='death':self.vars[k].set(v)
+                    if self.vars['ppo'].get().strip()!=self.snapshot['ppo']:continue
+                    for k in self.vars:
+                        if k not in ('ppo','death'):self.vars[k].set(value[0].get(k,''))
                     self.sources=value[1];self.review_notes=value[2];self.note_text.delete('1.0','end');self.note_text.insert('1.0','\n'.join(self.review_notes));self.source_text.configure(state='normal');self.source_text.delete('1.0','end');self.source_text.insert('1.0',json.dumps(self.sources,indent=2));self.source_text.configure(state='disabled')
                     self.death_confirmation=None;self.refresh_death(auto=True)
                 elif kind=='payments':
+                    if self.vars['ppo'].get().strip()!=self.snapshot['ppo']:continue
                     self.payment_text.delete('1.0','end');self.payment_text.insert('1.0',json.dumps([payment_dict(p) for p in value],indent=2));self.report_complete=True;self.report_ppo=self.snapshot['ppo'];self.report_range=(self.snapshot.get('effective'),self.snapshot_end);self.approved.set(False)
         except queue.Empty:pass
         self.root.after(100,self.poll)
@@ -112,31 +125,63 @@ class App:
             chrome=next(bundled.rglob('chrome.exe'),None) if bundled.exists() else None
         if not chrome:return messagebox.showerror('Browser not found','Bundled browser is missing. Extract the complete portable ZIP.')
         profile=Path(os.environ.get('LOCALAPPDATA',str(ROOT)))/'FamilyPensionTool'/'ChromeProfile';profile.mkdir(parents=True,exist_ok=True)
-        subprocess.Popen([str(chrome),'--remote-debugging-address=127.0.0.1','--remote-debugging-port=9222',f'--user-data-dir={profile}','https://dotpension.gov.in/Login/Index'])
+        subprocess.Popen([str(chrome),'--remote-debugging-address=127.0.0.1','--remote-debugging-port=9222',f'--user-data-dir={profile}','https://dotpension.gov.in/'])
         self.status.set('Complete login and OTP in this dedicated Chrome window. Keep it open.')
     def collect(self):
         from .portal import Portal
         ppo=self.snapshot['ppo'];folder=self.case_folder(ppo);self.report_complete=False;self.candidates=[]
-        with Portal(folder,self.log) as portal:
+        with Portal(folder,self.log,recorder=self.active_record) as portal:
             docs,branch=portal.documents(ppo);candidates=[];warnings=[]
+            self.source_branch=branch;issued=[];conversion_files=[]
             for kind,path in docs:
-                text,ocr=read_pdf(path,self.snapshot_ocr) if path.suffix=='.pdf' else (path.read_text(encoding='utf-8'),False)
-                (folder/(path.stem+'_extracted.txt')).write_text(text,encoding='utf-8')
-                fields,notes=parse_text(text,'conversion' if kind=='conversion' else 'original')
-                if fields.get('ppo') and fields['ppo']!=ppo:raise ValueError('A document has a different PPO. Collection stopped.')
-                if ocr:warnings.append('OCR used for '+path.name+': verify all digits against the PDF.')
-                candidates.append((path.name,fields));warnings+=notes
-            data,sources,conflicts=merge_candidates(candidates)
-            data['ppo']=ppo;self.candidates=candidates
-            self.q.put(('fields',(data,sources,warnings+conflicts)))
+                with self.active_record.step('extract_source','Required fields with matching PPO and source identity',portal.page,source=path.name):
+                    if kind=='structured':
+                        saved=json.loads(path.read_text(encoding='utf-8'));fields=saved['fields'];notes=saved.get('notes',[])
+                    else:
+                        text,ocr=read_pdf(path,self.snapshot_ocr)
+                        path.with_name(path.stem+'_extracted.txt').write_text(text,encoding='utf-8')
+                        fields,notes=parse_text(text,'conversion' if kind=='revision' else 'original')
+                        if kind=='revision' and not fields:
+                            # Non-conversion commutation authority is a different source kind.
+                            if re.search(r'revision\s+on\s+account\s+of\s+commutation',text,re.I):fields,notes=parse_text(text,'original')
+                            else:
+                                warnings.append(path.name+': not a matching family conversion order; retained for review.');continue
+                        elif kind=='revision':conversion_files.append(path)
+                        if ocr:warnings.append('OCR used for '+path.name+': verify all digits against the PDF.')
+                    if fields.get('ppo')!=ppo:raise ValueError('A source does not positively identify the requested PPO. Collection stopped for review.')
+                    if fields.get('_issued_date'):issued.append(dt(fields['_issued_date']))
+                    candidates.append((path.name,fields));warnings+=notes
+                    self.active_record.checkpoint(candidates=candidates,notes=warnings)
+                    self.stage_fields(candidates,warnings,branch)
+            data=self.stage_fields(candidates,warnings,branch)
             if 'effective' not in data:raise ValueError('No unambiguous conversion effective date. Import/review the relevant revision PDF before fetching payments.')
+            if branch=='Normal SAMPANN':
+                if not issued:raise ValueError('Original document issue date unavailable for commutation query. Review retained sources.')
+                gc_path=portal.commutation(ppo,min(issued).replace(month=1,day=1))
+                gc=json.loads(gc_path.read_text(encoding='utf-8'));candidates.append((gc_path.name,gc['fields']));warnings+=gc.get('notes',[])
+                data=self.stage_fields(candidates,warnings,branch)
+            if len(conversion_files)==1:
+                dest=portal.output/f'family pensioner_{ppo}.pdf'
+                shutil.copy2(conversion_files[0],dest)
+                self.active_record.event('source_saved',filename=dest.name,actual='Matching family conversion PDF verified')
             self.snapshot['effective']=data['effective'];start=dt(data['effective']).replace(day=1)
             payments=portal.payments(ppo,start,dt(self.snapshot_end));self.q.put(('payments',payments))
+            self.report_query=portal.last_query
         self.log(f'{branch}: documents and complete payment report collected. Review missing/conflicting fields, then export.')
+
+    def stage_fields(self,candidates,warnings,branch):
+        data,sources,conflicts=merge_candidates(candidates);data['ppo']=self.snapshot['ppo'];self.candidates=candidates
+        self.q.put(('fields',(data,sources,warnings+conflicts)))
+        partial=dict(case=dict(data,notes=warnings+conflicts),payments=[],end=self.snapshot_end,
+                     report_complete=False,sources=sources,source_branch=branch)
+        (self.active_record.folder/'partial_case.json').write_text(json.dumps(partial,indent=2),encoding='utf-8')
+        self.active_record.checkpoint(case=data,sources=sources,notes=warnings+conflicts,source_branch=branch)
+        return data
     def fetch_payments(self):
         from .portal import Portal
         start=dt(self.snapshot['effective']).replace(day=1)
-        with Portal(self.case_folder(self.snapshot['ppo']),self.log) as portal:payments=portal.payments(self.snapshot['ppo'],start,dt(self.snapshot_end))
+        with Portal(self.case_folder(self.snapshot['ppo']),self.log,recorder=self.active_record) as portal:
+            payments=portal.payments(self.snapshot['ppo'],start,dt(self.snapshot_end));self.report_query=portal.last_query
         self.q.put(('payments',payments));self.log('Payment report loaded. No returned payment means zero Drawn only after this successful query.')
     def import_pdf(self):
         path=filedialog.askopenfilename(filetypes=[('PDF or extracted text','*.pdf *.txt')])
@@ -197,7 +242,7 @@ class App:
     def save_case(self):
         try:
             folder=self.case_folder();folder.mkdir(parents=True,exist_ok=True);p=folder/'reviewed_case.json'
-            p.write_text(json.dumps(dict(case=self.data(),payments=[payment_dict(x) for x in self.payments()],end=self.end.get(),report_complete=self.report_complete,report_ppo=getattr(self,'report_ppo',''),report_range=getattr(self,'report_range',None),sources=self.sources,death_confirmation=getattr(self,'death_confirmation',None)),indent=2),encoding='utf-8');self.status.set('Saved '+str(p))
+            p.write_text(json.dumps(dict(case=self.data(),payments=[payment_dict(x) for x in self.payments()],end=self.end.get(),report_complete=self.report_complete,report_ppo=getattr(self,'report_ppo',''),report_range=getattr(self,'report_range',None),report_query=getattr(self,'report_query',None),source_branch=getattr(self,'source_branch',''),sources=self.sources,death_confirmation=getattr(self,'death_confirmation',None)),indent=2),encoding='utf-8');self.status.set('Saved '+str(p))
         except Exception as e:messagebox.showerror('Save failed',str(e))
     def load_case(self):
         p=filedialog.askopenfilename(filetypes=[('Case JSON','*.json')])
@@ -208,25 +253,40 @@ class App:
             self.note_text.delete('1.0','end');self.note_text.insert('1.0','\n'.join(c.get('notes',[])));self.fma_overrides=c.get('fma_overrides',{})
             self.payment_text.delete('1.0','end');self.payment_text.insert('1.0',json.dumps(data['payments'],indent=2));self.end.set(data['end']);self.report_complete=data.get('report_complete',False);self.report_ppo=data.get('report_ppo','');self.report_range=data.get('report_range');self.sources=data.get('sources',{});self.approved.set(False)
             self.death_confirmation=data.get('death_confirmation');self.refresh_death()
+            self.source_branch=data.get('source_branch','');self.report_query=data.get('report_query')
         except Exception as e:messagebox.showerror('Load failed',str(e))
     def open_sources(self):
         try:
             path=self.case_folder();path.mkdir(parents=True,exist_ok=True)
             if os.name=='nt':os.startfile(path)
         except Exception as e:messagebox.showerror('Sources',str(e))
+    def open_diagnostics(self):
+        path=getattr(self,'latest_run_path',None)
+        if path and path.is_dir() and os.name=='nt':os.startfile(path)
+        else:messagebox.showinfo('Saved steps','No collection run recorded in this session yet.')
     def export_case(self):
+        record=None
         try:
             if getattr(self,'busy',False):raise ValueError('Wait for collection to finish.')
+            record=Recorder(self.case_folder(),'calculate_export');self.latest_run_path=record.folder
+            record.checkpoint(case=self.data(),end=self.end.get(),report_query=getattr(self,'report_query',None))
             c=Case.from_dict(self.data())
             state=self.death_state()
             if not state['accepted'] and getattr(self,'death_confirmation',None)!=signature_key(state):raise ValueError('Death date needs manual review. Compare expected/recorded dates, enter the verified date, and click Confirm reviewed death date. The discrepancy note will be retained.')
             if not self.approved.get():raise ValueError('Review the source fields and tick the review checkbox.')
             if not self.report_complete or getattr(self,'report_ppo','')!=c.ppo:raise ValueError('A complete successful payment report query is required. Fetch the report first.')
             if tuple(self.report_range or ())!=(str(c.effective),self.end.get()):raise ValueError('Effective/end date changed after payment collection. Fetch the report again.')
-            rates=load_rates(self.rate_path.get());result=calculate(c,rates,self.payments(),self.end.get());dest=export(c,result,self.output.get());self.save_case()
+            with record.step('calculate','Validated category/rates, existing payment allocation and arithmetic'):
+                rates=load_rates(self.rate_path.get());result=calculate(c,rates,self.payments(),self.end.get())
+            with record.step('export_excel','Standard-format workbook saved'):
+                dest=export(c,result,self.output.get())
+                record.checkpoint(output=str(dest),due=str(result['due']),drawn=str(result['drawn']),difference=str(result['difference']))
+            self.save_case();record.finish()
             self.settings_file.write_text(json.dumps({'rates':self.rate_path.get(),'output':self.output.get()},indent=2));self.status.set(f'Saved {dest.name} | Due {result["due"]:,.0f} | Drawn {result["drawn"]:,.0f} | Difference {result["difference"]:,.0f}')
             messagebox.showinfo('Excel saved',str(dest))
-        except Exception as e:messagebox.showerror('Export stopped',str(e))
+        except Exception as e:
+            if record:record.finish(e)
+            messagebox.showerror('Export stopped',str(e)+(('\nSaved steps / diagnostics: '+str(record.folder)) if record else ''))
 
 def main():
     root=tk.Tk();ttk.Style().theme_use('clam');App(root);root.mainloop()
