@@ -72,6 +72,18 @@ Reduced Pension after commutation 10825 6495'''
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_existing_idr_cdr_master_headers_and_percent_cells(self):
+        from openpyxl import Workbook
+        from pension_tool.engine import load_rates, D
+        with TemporaryDirectory() as folder:
+            path=Path(folder)/'master.xlsx';book=Workbook();book.remove(book.active)
+            for category,header,rate in [('IDA','IDR %',2.417),('CDA','CDR %',0.6)]:
+                sheet=book.create_sheet(category+'_DR');sheet.append(['From Date','To Date',header])
+                sheet.append(['2026-07-01','2026-09-30',rate]);sheet['C2'].number_format='0.00%'
+            book.save(path);book.close()
+            values={r.category:r.percent for r in load_rates(path)}
+            self.assertEqual(values,{'IDA':D('241.7'),'CDA':D('60')})
+
     def test_failed_action_preserves_history_progress_and_pack(self):
         with TemporaryDirectory() as folder:
             r=Recorder(folder);r.checkpoint(case={'ppo':PPO},payment_query_complete=False)

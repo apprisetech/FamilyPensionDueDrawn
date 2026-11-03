@@ -124,7 +124,8 @@ def calculate(c, rates, payments, end=None):
     while cursor<=end:
         last=month_end(cursor);stop=last+timedelta(days=1)
         cuts={cursor,stop}
-        for boundary in (c.effective,c.normal_from,c.commutation_restore):
+        restoration = c.commutation_restore if c.commuted and c.commutation_restore and c.commutation_restore < c.effective else None
+        for boundary in (c.effective,c.normal_from,restoration):
             if boundary and cursor<boundary<stop:cuts.add(boundary)
         for r in rates:
             if r.category==c.category:
@@ -157,7 +158,7 @@ def calculate(c, rates, payments, end=None):
 def load_rates(path):
     from openpyxl import load_workbook
     wb=load_workbook(path,data_only=True);result=[]
-    aliases={'start':('from','fromdate','start','startdate','effectivefrom'),'end':('to','todate','end','enddate','effectiveto'),'rate':('rate','drrate','dr','percentage','drpercentage'),'category':('category','type','regime')}
+    aliases={'start':('from','fromdate','start','startdate','effectivefrom'),'end':('to','todate','end','enddate','effectiveto'),'rate':('rate','drrate','dr','percentage','drpercentage','idr','cdr'),'category':('category','type','regime')}
     for s in wb:
         regime='IDA' if 'IDA' in s.title.upper() else 'CDA' if 'CDA' in s.title.upper() else None
         header=None
