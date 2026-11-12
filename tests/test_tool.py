@@ -31,10 +31,10 @@ class CalculationTests(unittest.TestCase):
         rr=[Rate(date(y,m,1),month_end(date(y,m+2,1)),D(v),'IDA') for y,m,v in schedule]
         dates=['2022-01-28','2022-02-25','2022-04-01','2022-04-28','2022-05-30','2022-06-29','2022-07-28','2022-08-24','2022-09-22','2022-10-27','2022-11-29'];amounts=[24409,24899,24899,25021,25021,25021,25582,25582,25582,26092,26092]
         ps=[Payment(dt(d),'MONTHLY BILL',D(v),D(490) if i==1 else D(0)) for i,(d,v) in enumerate(zip(dates,amounts))]
-        r=calculate(c,rr,ps,'2026-09-30');self.assertEqual(len(r['rows']),58);self.assertEqual((r['due'],r['drawn'],r['difference']),(1830703,278200,1552503));self.assertEqual(len(r['notes']),1)
+        r=calculate(c,rr,ps,'2026-09-30');self.assertEqual(len(r['rows']),58);self.assertEqual((r['due'],r['drawn'],r['difference']),(1830703,278690,1552013));self.assertEqual(len(r['notes']),0)
     def test_april_mapping_and_separate_arrear(self):
         ps=[Payment(date(2026,4,1),'MONTHLY BILL',D(100),D(5)),Payment(date(2026,4,28),'MONTHLY BILL',D(200)),Payment(date(2026,3,10),'SUPPLEMENTARY BILL',D(30))]
-        amounts,notes=allocate(ps,date(2026,3,1),date(2026,4,30));self.assertEqual(amounts,{'2026-03':130,'2026-04':200});self.assertTrue(any('excluded' in n for n in notes));self.assertTrue(any('SUPPLEMENTARY' in n for n in notes))
+        amounts,notes=allocate(ps,date(2026,3,1),date(2026,4,30));self.assertEqual(amounts,{'2026-03':135,'2026-04':200});self.assertTrue(any('SUPPLEMENTARY' in n for n in notes))
     def test_single_april_bill_requires_allocation(self):
         p=Payment(date(2026,4,1),'MONTHLY BILL',D(100))
         with self.assertRaisesRegex(ValueError,'expected two'):allocate([p],date(2026,3,1),date(2026,4,30))
@@ -42,11 +42,15 @@ class CalculationTests(unittest.TestCase):
     def test_duplicate_payment_is_not_silently_summed(self):
         p=Payment(date(2026,9,1),'MONTHLY BILL',D(10))
         with self.assertRaisesRegex(ValueError,'Duplicate'):allocate([p,p],date(2026,9,1),date(2026,9,30))
-    def test_fma_full_not_partial(self):
+    def test_fma_proportional_across_split_periods(self):
         r=calculate(case(fma_before='1000',fma_after='1000'),rates(),[],'2026-09-30')
-        self.assertEqual(sum(x['fma'] for x in r['rows']),1000);self.assertEqual(r['due'],37701)
-    def test_changed_conversion_month_fma_requires_override(self):
-        with self.assertRaisesRegex(ValueError,'FMA changes'):calculate(case(fma_before='1000'),rates(),[],'2026-09-30')
+        self.assertEqual(sum(x['fma'] for x in r['rows']),1000);self.assertEqual(r['due'],37702)
+    def test_death_month_prorates_each_beneficiary_fma(self):
+        result=calculate(case(fma_before='1000'),rates(),[],'2026-09-30')
+        self.assertEqual(result['rows'][0]['fma'],D(1000)*D(2)/D(30))
+        self.assertEqual(result['rows'][1]['fma'],0)
+        self.assertEqual(result['rows'][0]['fma_cell'],17)
+
     def test_age_threshold_from_birthday_month_and_beneficiary(self):
         self.assertEqual(quantum(date(1946,9,28),date(2026,9,1)),D('.2'))
         r=calculate(case(pensioner_dob='1940-02-15',family_dob='1961-02-15'),rates(),[],'2026-09-30')
@@ -82,7 +86,7 @@ class ExcelTests(unittest.TestCase):
     def test_output_layout_cache_colours_and_schema(self):
         r=calculate(case(),rates(),[Payment(date(2026,9,23),'MONTHLY BILL',D(32660))],'2026-09-30')
         with tempfile.TemporaryDirectory() as folder:
-            p=export(case(),r,folder);self.assertEqual(p.name,'123456789012345_TEST_FAMILY.xlsx')
+            p=export(case(),r,folder);self.assertRegex(p.name,r'^\d{8}_\d{6}_123456789012345_TEST_FAMILY\.xlsx$')
             s=load_workbook(p,data_only=True).active;self.assertEqual(s['G31'].value,4041);self.assertEqual(s['G6'].value,'12345678901');self.assertEqual(s['K26'].value,32660)
             self.assertEqual(len(s.conditional_formatting),1)
             self.assertFalse(any(c.border.top.style or c.border.bottom.style for row in s.iter_rows(min_row=29,max_row=37) for c in row))

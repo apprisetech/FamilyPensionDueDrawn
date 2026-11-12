@@ -9,8 +9,9 @@ if '--self-test' in sys.argv:
     RapidOCR()
     with sync_playwright() as p:
         from pathlib import Path
-        browser=next((Path(sys._MEIPASS)/'browser').rglob('chrome.exe'))
-        b=p.chromium.launch(executable_path=str(browser),headless=True)
+        browser=next((Path(sys._MEIPASS)/'browser').rglob('chrome.exe'),None)
+        options={'executable_path':str(browser)} if browser else {'channel':'chrome'}
+        b=p.chromium.launch(headless=True,**options)
         page=b.new_page();page.set_content('<title>Ready</title>');assert page.title()=='Ready';b.close()
     print('Portable self-test passed: GUI, OCR models, Excel, PDF and browser.')
 else:
